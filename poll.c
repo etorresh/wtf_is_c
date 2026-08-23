@@ -9,6 +9,7 @@ int main() {
         printf("oh no\n");
         return 1;
     };
+    printf("pipe: %i\n", fds[0]);
 
     struct pollfd pfd = {
         .fd = fds[0],
