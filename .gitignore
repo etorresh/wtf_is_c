@@ -1,0 +1,8 @@
+# Ignore everything by default
+/*
+
+# Whitelist source files, docs, and gitignore
+!*.c
+!*.h
+!*.md
+!.gitignore
