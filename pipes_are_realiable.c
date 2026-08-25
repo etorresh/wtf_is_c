@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+// Fast writer blocks on a full pipe and wakes as the slow reader frees buffer space. At least one page has to be freed for the writer to wake up
 int main() {
     int fds[2];
     if (pipe(fds) == -1) {
@@ -17,11 +18,9 @@ int main() {
 
         int iteration = 0;
         while(1) {
-            // printf("+ STA of WRITER iter: %i\n", iteration);
             char write_buff[1024];
             long bytes_written = write(fds[1], write_buff, sizeof(write_buff));
-            printf("+ bytes_written: %ld\n", bytes_written);
-            // printf("+ END of WRITER iter: %i\n", iteration);
+            printf("+ bytes_written: %ld iter: %i\n", bytes_written, iteration);
             iteration++;
         }
     } else {
@@ -30,11 +29,9 @@ int main() {
         int iteration = 0;
         while (1) {
             sleep(1);
-            // printf("- STA of READER iter: %i\n", iteration);
             char read_buff[1024];
             long bytes_read = read(fds[0], read_buff, sizeof(read_buff));
-            printf("- bytes_read: %ld\n", bytes_read);
-            // printf("- END of READER iter: %i\n", iteration);
+            printf("- bytes_read: %ld iter: %i\n", bytes_read, iteration);
             iteration ++;
         }
     }
