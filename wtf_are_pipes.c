@@ -12,7 +12,7 @@ int main() {
     const char *test = "Hello";
     ssize_t bytes_written = write(pipe_1[1], buf, 6);
     if (bytes_written == -1 || bytes_written != 6) {
-       perror("write failed"); x^(x / (x - 1))
+       perror("write failed");
        return -1;
     };
     struct pollfd x = {.fd = 0};
