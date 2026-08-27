@@ -11,26 +11,27 @@
 
 extern char _end;
 int main() {
-  long page_size = sysconf(_SC_PAGESIZE);
-  printf("System page size: %lu\n", page_size);
+    long page_size = sysconf(_SC_PAGESIZE);
+    printf("System page size: %lu\n", page_size);
 
-  /*
-   * Request an amount of memory smaller than the 128KB padding
-   * So this can be 1 byte, 1 page or 32 pages. As long as it's <= 32 the
-   * total pages owned by the process at the end will be the same.
-   */
-  int pages_requested = 10;
-  char *ptr = malloc(pages_requested * page_size);
+    /*
+     * Request an amount of memory smaller than the 128KB padding
+     * So this can be 1 byte, 1 page or 32 pages. As long as it's <= 32 the
+     * total pages owned by the process at the end will be the same.
+     */
+    int pages_requested = 10;
+    char *ptr = malloc(pages_requested * page_size);
 
-  printf("Walking the heap until segmentation fault:\n");
-  int i = 0;
-  while (1) {
-    unsigned long j = i * page_size;
-    // Reading ptr[j] to avoid the compiler optimizing the call away
-    printf("The process owns %i page(s) | ptr[%lu] = %i\n", i + 1, j, ptr[j]);
-    i++;
-  }
-  return 0;
+    printf("Walking the heap until segmentation fault:\n");
+    int i = 0;
+    while (1) {
+        unsigned long j = i * page_size;
+        // Reading ptr[j] to avoid the compiler optimizing the call away
+        printf("The process owns %i page(s) | ptr[%lu] = %i\n", i + 1, j,
+               ptr[j]);
+        i++;
+    }
+    return 0;
 }
 
 /*

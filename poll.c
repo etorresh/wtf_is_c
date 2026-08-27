@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <poll.h>
+#include <stdio.h>
 #include <sys/poll.h>
 #include <unistd.h>
 
@@ -11,10 +11,7 @@ int main() {
     };
     printf("pipe: %i\n", fds[0]);
 
-    struct pollfd pfd = {
-        .fd = fds[0],
-        .events = POLLIN
-    };
+    struct pollfd pfd = {.fd = fds[0], .events = POLLIN};
 
     poll(&pfd, 1, 0);
     printf("Initially: %s\n", (pfd.revents & POLLIN) ? "READY" : "NOT READY");

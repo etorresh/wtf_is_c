@@ -14,7 +14,7 @@ int main() {
 
     // set arr = {0, 1, 2, 3}
     for (int i = 0; i < 4; i++) {
-        *(arr+i) = i;
+        *(arr + i) = i;
     }
     for (int i = 0; i < 4; i++) {
         printf("arr[%i] = %i\n", i, arr[i]);
@@ -38,12 +38,15 @@ int main() {
 
     // I predirect this will segfault
     // int *arr = malloc(4 * sizeof(int));
-    // in that line I asked for 4 * 4 = 16 bytes and that got our process a 4KB page assigned
-    // so this should crash instead of give me garbage
-    printf("%i\n", arr[4095 + 1]);
-    // since I have a single malloc here, this means that malloc must ask for more than a single page
-    //
-    // TO DO: next session I'll use gdb and mallopt M_TOP_PAD to find the padding requested, so I can find the exact value when it segfaults
-    // afterwards understand why realloc works, I would think the original pointer is not guranteed to work if there's not enough
-    // available contiguous memory, but it seems it is. It might not be the be the case if I call malloc again
+    // in that line I asked for 4 * 4 = 16 bytes and that got our process a 4KB
+    // page assigned so this should crash instead of give me garbage
+    printf("%i\n\n", arr[4095 + 1]); // my theory was incorrect and it lead to
+                                     // exploration at view_reuse_pool.c
+
+    int iteration = 0;
+    char *char_ptr = (char *)arr;
+    while (1) {
+        printf("");
+        iteration++;
+    }
 }
