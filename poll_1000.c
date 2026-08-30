@@ -9,7 +9,7 @@
 #include <errno.h>
 
 // 0.07%
-// roughly y where x^1000 = 0.5 and y = 1 - (1 - x)^1000
+// roughly y where (1 - y)^1000 = 0.5
 // (around 50% chance of writing across 1000 attempts)
 const int NUMERATOR = 7;
 const int DENOMINATOR = 10000;
