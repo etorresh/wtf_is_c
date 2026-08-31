@@ -1,4 +1,4 @@
-#define _DEFAULT_SOURCE // this allows arc4random_uniform
+#define _GNU_SOURCE // this allows arc4random_uniform, and close_range
 #include <stdio.h>
 #include <poll.h>
 #include <unistd.h>
@@ -75,22 +75,19 @@ int main() {
         }
 
     } else {
-        for (int i = 0; i < 1000; i++) {
-            close(pipes_fds[i][0]);
-            if (process_i != i) {
-                close(pipes_fds[i][1]);
-            }
+        int my_pipe_write_fd = dup2(pipes_fds[process_i][1], 3);
+        if (my_pipe_write_fd < 0) {
+            perror("dup2");
         }
-        int my_pipe_write_fd = pipes_fds[process_i][1];
+        close_range(4, ~0U, 0);
 
         while(1) {
             int random_value = arc4random_uniform(DENOMINATOR);
             if (random_value < NUMERATOR) {
                 ssize_t bytes_written = write(my_pipe_write_fd, &random_value, sizeof(int));
                 if (bytes_written < 0) {
-                    fprintf(stderr, "Error writing bytes\n");
+                    perror("write");
                 }
-                // printf("child #%i: I'm writing\n", process_i);
             }
             sleep(1);
         }
