@@ -1,98 +1,79 @@
-#define _GNU_SOURCE // allows arc4random_uniform, and close_range
-#include <stdio.h>
-#include <poll.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <sys/wait.h>
-#include<sys/epoll.h>
+/*
+ * epoll across 1,000 pipes. Setup and options are in pipes_1000.h.
+ *
+ * The 1,000 read ends are registered once with epoll_ctl. After that,
+ * epoll_wait returns only the descriptors that are ready, so the cost of a
+ * wakeup follows the number of ready pipes, not the 1,000 being watched.
+ * Compare with poll_1000.c.
+ */
+#define _GNU_SOURCE // arc4random_uniform and close_range
+#include <errno.h>
+#include <sys/epoll.h>
 
-// 0.07%
-// roughly y where (1 - y)^1000 = 0.5
-// (around 50% chance of writing across 1000 attempts)
-const int NUMERATOR = 7;
-const int DENOMINATOR = 10000;
+#include "pipes_1000.h"
 
-int main() {
-    int pipes_fds[1000][2];
-    for (int i = 0; i < 1000; i++) {
-        if (pipe(pipes_fds[i]) == -1) {
-            perror("pipe");
+int main(int argc, char **argv) {
+    struct config c = parse_args(argc, argv);
+    struct children kids;
+    spawn_children(&kids, c);
+
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        perror("epoll_create1");
+        stop_children(&kids, CHILDREN);
+        return EXIT_FAILURE;
+    }
+    for (int i = 0; i < CHILDREN; i++) {
+        struct epoll_event ev = {.events = EPOLLIN, .data.u32 = i};
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, kids.read_fds[i], &ev) == -1) {
+            perror("epoll_ctl");
+            stop_children(&kids, CHILDREN);
             return EXIT_FAILURE;
         }
     }
 
-    int process_count = 0;
-    int process_i = -1;
-    for (int i = 0; i < 1000; i++) {
-        pid_t pid = fork();
-        if (pid == -1) {
-            perror("fork");
-            return EXIT_FAILURE;
-        } else if (pid == 0) {
-            process_i = i;
+    long wakeups = 0, messages = 0;
+    static struct epoll_event events[CHILDREN];
+    double cpu_start = cpu_ms();
+    double deadline = now_ms() + c.seconds * 1000.0;
+    for (;;) {
+        int timeout = (int)(deadline - now_ms());
+        if (timeout <= 0) {
             break;
         }
-        process_count += 1;
-    }
-
-    if (process_i == -1) { // is root
-        for (int i = 0; i < 1000; i++) {
-            close(pipes_fds[i][1]);
-        }
-
-        printf("parent: I am groot and I created #%i processes\n", process_count);
-        int epollfd = epoll_create1(0);
-        for (int i = 0; i< 1000; i++) {
-            struct epoll_event ev = {
-                .data.u32= i,
-                .events = EPOLLIN,
-            };
-            epoll_ctl(epollfd, EPOLL_CTL_ADD, pipes_fds[i][0], &ev);
-        }
-
-        while(1) {
-            struct epoll_event events[1000];
-            int event_count = epoll_wait(epollfd, &events[0], 1000, -1);
-            if (event_count < 0) {
-                perror("epoll_wait");
-                return EXIT_FAILURE;
+        int ready = epoll_wait(epoll_fd, events, CHILDREN, timeout);
+        if (ready == -1) {
+            if (errno == EINTR) {
+                continue;
             }
-
-            for (int i = 0; i < event_count; i++) {
-                int child_id = events[i].data.u32;
-                int fd_to_read = pipes_fds[child_id][0];
-                int message;
-                ssize_t bytes_read = read(fd_to_read, &message, sizeof(message));
-                if (bytes_read <= 0) {
-                    // it looks like epoll_ctl is unecessary as this is the only
-                    // reference to the fd, and  the kernel will automatically
-                    // unregister it from all epoll instances when closing
-                    // epoll_ctl(epollfd, EPOLL_CTL_DEL, fd_to_read, NULL);
-                    close(fd_to_read);
-                    continue;
-                }
-                printf("parent: child %i spoke to me thanks to %i because %i < %i\n", child_id, message, message, NUMERATOR);
-            }
+            perror("epoll_wait");
+            stop_children(&kids, CHILDREN);
+            return EXIT_FAILURE;
         }
-
-    } else {
-        int my_pipe_write_fd = dup2(pipes_fds[process_i][1], 3);
-        if (my_pipe_write_fd < 0) {
-            perror("dup2");
+        if (ready == 0) {
+            break; // timed out: the run is over
         }
-        close_range(4, ~0U, 0);
+        wakeups++;
 
-        while(1) {
-            int random_value = arc4random_uniform(DENOMINATOR);
-            if (random_value < NUMERATOR) {
-                ssize_t bytes_written = write(my_pipe_write_fd, &random_value, sizeof(int));
-                if (bytes_written == -1) {
-                    perror("write");
-                }
+        for (int i = 0; i < ready; i++) {
+            int child = events[i].data.u32;
+            int roll;
+            if (read(kids.read_fds[child], &roll, sizeof(roll)) != sizeof(roll)) {
+                // Closing the last reference to a descriptor removes it from
+                // every epoll instance, so no EPOLL_CTL_DEL is needed.
+                close(kids.read_fds[child]);
+                continue;
             }
-            sleep(1);
+            messages++;
+            if (!c.quiet) {
+                printf("parent: child %d rolled %d (< %d)\n", child, roll,
+                       c.chance);
+            }
         }
     }
+    double cpu = cpu_ms() - cpu_start;
+
+    stop_children(&kids, CHILDREN);
+    report("epoll", wakeups, messages, cpu);
+    return EXIT_SUCCESS;
 }

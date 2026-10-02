@@ -1,95 +1,69 @@
-#define _GNU_SOURCE // this allows arc4random_uniform, and close_range
-#include <stdio.h>
-#include <poll.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <sys/wait.h>
+/*
+ * poll() across 1,000 pipes. Setup and options are in pipes_1000.h.
+ *
+ * poll() takes the whole list on every call: the kernel copies in and checks
+ * all 1,000 entries each time, and then the parent scans all 1,000 again to
+ * find the few that are ready. The cost of a wakeup grows with the number of
+ * descriptors watched, not the number that are ready. Compare with
+ * epoll_1000.c.
+ */
+#define _GNU_SOURCE // arc4random_uniform and close_range
 #include <errno.h>
+#include <poll.h>
 
-// 0.07%
-// roughly y where (1 - y)^1000 = 0.5
-// (around 50% chance of writing across 1000 attempts)
-const int NUMERATOR = 7;
-const int DENOMINATOR = 10000;
+#include "pipes_1000.h"
 
-int main() {
-    int pipes_fds[1000][2];
-    for (int i = 0; i < 1000; i++) {
-        if (pipe(pipes_fds[i]) < 0) {
-            printf("Error creating pipe #%i\n", i);
-            return 1;
-        }
+int main(int argc, char **argv) {
+    struct config c = parse_args(argc, argv);
+    struct children kids;
+    spawn_children(&kids, c);
+
+    struct pollfd fds[CHILDREN];
+    for (int i = 0; i < CHILDREN; i++) {
+        fds[i] = (struct pollfd){.fd = kids.read_fds[i], .events = POLLIN};
     }
 
-    int process_count = 0;
-    int process_i = -1;
-    for (int i = 0; i < 1000; i++) {
-        pid_t pid = fork();
-        if (pid < 0) {
-            printf("Error forking\n");
-            return 1;
-        } else if (pid == 0) {
-            process_i = i;
+    long wakeups = 0, messages = 0;
+    double cpu_start = cpu_ms();
+    double deadline = now_ms() + c.seconds * 1000.0;
+    for (;;) {
+        int timeout = (int)(deadline - now_ms());
+        if (timeout <= 0) {
             break;
         }
-        process_count += 1;
-    }
-
-    if (process_i == -1) { // is root
-        for (int i = 0; i < 1000; i++) {
-            close(pipes_fds[i][1]);
-        }
-
-        printf("parent: I am groot and I created #%i processes\n", process_count);
-        struct pollfd fds[1000];
-        for (int i = 0; i < 1000; i++) {
-            fds[i] = (struct pollfd) {
-                .fd = pipes_fds[i][0],
-                .events = POLLIN,
-            };
-        }
-        while(1) {
-            int event_count = poll(fds, sizeof(fds) / sizeof(fds[0]), -1);
-            if (event_count == 0) {
-                fprintf(stderr, "poll timed out which shouldn't be possible as poll(timeout = -1)\n");
-                return EXIT_FAILURE;
-            } else if (event_count < 0) {
-                printf("error: %d", errno);
-                return EXIT_FAILURE;
+        int ready = poll(fds, CHILDREN, timeout);
+        if (ready == -1) {
+            if (errno == EINTR) {
+                continue;
             }
-
-            for (int i = 0; i < 1000; i++) {
-                if (fds[i].revents & POLLIN) {
-                    int message;
-                    ssize_t bytes_read = read(fds[i].fd, &message, sizeof(message));
-                    if (bytes_read <= 0) {
-                        close(fds[i].fd);
-                        fds[i].fd = -1;
-                        continue;
-                    }
-                    printf("parent: child %i spoke to me thanks to %i because %i < %i\n", i, message, message, NUMERATOR);
-                }
-            }
+            perror("poll");
+            stop_children(&kids, CHILDREN);
+            return EXIT_FAILURE;
         }
-
-    } else {
-        int my_pipe_write_fd = dup2(pipes_fds[process_i][1], 3);
-        if (my_pipe_write_fd < 0) {
-            perror("dup2");
+        if (ready == 0) {
+            break; // timed out: the run is over
         }
-        close_range(4, ~0U, 0);
+        wakeups++;
 
-        while(1) {
-            int random_value = arc4random_uniform(DENOMINATOR);
-            if (random_value < NUMERATOR) {
-                ssize_t bytes_written = write(my_pipe_write_fd, &random_value, sizeof(int));
-                if (bytes_written < 0) {
-                    perror("write");
-                }
+        for (int i = 0; i < CHILDREN; i++) {
+            if (!(fds[i].revents & POLLIN)) {
+                continue;
             }
-            sleep(1);
+            int roll;
+            if (read(fds[i].fd, &roll, sizeof(roll)) != sizeof(roll)) {
+                close(fds[i].fd);
+                fds[i].fd = -1; // poll skips negative descriptors
+                continue;
+            }
+            messages++;
+            if (!c.quiet) {
+                printf("parent: child %d rolled %d (< %d)\n", i, roll, c.chance);
+            }
         }
     }
+    double cpu = cpu_ms() - cpu_start;
+
+    stop_children(&kids, CHILDREN);
+    report("poll", wakeups, messages, cpu);
+    return EXIT_SUCCESS;
 }
