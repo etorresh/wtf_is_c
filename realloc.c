@@ -1,56 +1,64 @@
+/*
+ * What malloc and realloc actually hand you.
+ *
+ * Questions: what's in fresh malloc memory, does shrinking with realloc move
+ * the block, and how far past a 16-byte allocation can you read before it
+ * crashes?
+ *
+ * Findings on glibc (x86-64):
+ * - A fresh malloc from a new heap reads as zeros. That's because the pages
+ *   come straight from the kernel, which zeroes them; malloc itself promises
+ *   nothing, and reused memory can hold old data.
+ * - Shrinking 16 bytes to 6 keeps the same block (realloc returns the same
+ *   pointer), so the old pointer still "works". Using it is still undefined
+ *   behaviour, since realloc may move the block.
+ * - Reading far past the 16 bytes doesn't crash: the whole 33-page heap that
+ *   glibc mapped (see malloc_padding.c) belongs to the process. The read only
+ *   segfaults past the end of the heap, which sbrk(0) reports.
+ */
+#define _DEFAULT_SOURCE // sbrk
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
-extern char _end[];
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 
-int main() {
+int main(void) {
     int *arr = malloc(4 * sizeof(int));
     if (arr == NULL) {
-        return 1;
+        perror("malloc");
+        return EXIT_FAILURE;
     }
-    char *heap_start = _end;
 
-    // check what's there before init
+    printf("fresh malloc:   ");
     for (int i = 0; i < 4; i++) {
-        printf("arr[%i] = %i\n", i, arr[i]);
+        printf("%d ", arr[i]);
     }
     printf("\n");
 
-    // set arr = {0, 1, 2, 3}
     for (int i = 0; i < 4; i++) {
-        *(arr + i) = i;
+        arr[i] = 10 + i;
     }
-    for (int i = 0; i < 4; i++) {
-        printf("arr[%i] = %i\n", i, arr[i]);
+
+    int *shrunk = realloc(arr, 6);
+    if (shrunk == NULL) {
+        perror("realloc");
+        return EXIT_FAILURE;
     }
-    printf("\n");
+    printf("realloc moved the block: %s\n", shrunk == arr ? "no" : "yes");
+    printf("*shrunk = %d, read through the old pointer = %d\n", *shrunk, *arr);
 
-    int *ptr = realloc(arr, 6);
-    if (ptr == NULL) {
-        return 1;
-    }
-    printf("*arr = %i\n", *arr);
-    printf("*ptr = %i\n\n", *ptr);
-
-    *arr = 10;
-    printf("*arr = %i\n", *arr);
-    printf("*ptr = %i\n\n", *ptr);
-
-    // malloc means that we have a full page assigned to this process
-    // so this should give me garbage but not segfault
-    printf("%i\n", arr[6]);
-    printf("%i\n", arr[1024]);
-    printf("%i\n", arr[2048]);
-    printf("%i\n", arr[4095]);
-
-    // I predirect this will segfault
-    // int *arr = malloc(4 * sizeof(int));
-    // in that line I asked for 4 * 4 = 16 bytes and that got our process a 4KB
-    // page assigned so this should crash instead of give me garbage
-    printf("%i\n\n", arr[4095 + 1]); // my theory was incorrect and it lead to
-                                     // exploration at view_reuse_pool.c
-    char *char_ptr = (char *)arr;
-    unsigned long last_valid_offset = 134495;
-    printf("char_ptr[%lu] = %i\n", last_valid_offset, char_ptr[last_valid_offset]);
-    printf("char_ptr - heap = %ti\n", (char *)arr - heap_start); // this might show heap randomization
+    // Past the allocation but inside the heap: garbage or zeros, no crash.
+    char *bytes = (char *)shrunk;
+    char *heap_end = sbrk(0);
+    ptrdiff_t last = heap_end - bytes - 1;
+    printf("byte 16:       %d\n", bytes[16]);
+    printf("byte 16,380:   %d\n", bytes[16380]);
+    printf("byte %td: %d (last byte of the heap)\n", last, bytes[last]);
+    printf("byte %td: about to read one past the heap...\n", last + 1);
+    fflush(stdout);
+    printf("%d\n", bytes[last + 1]); // segfaults
+    return 0;
 }
