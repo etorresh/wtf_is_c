@@ -1,17 +1,28 @@
+/*
+ * Pipes don't drop data.
+ *
+ * Question: what happens when a fast writer fills a pipe faster than a slow
+ * reader empties it?
+ *
+ * The writer blocks on a full pipe (64 KB by default on Linux) and wakes up as
+ * the reader frees space; nothing is lost or overwritten. At least one page
+ * (4 KB) has to be freed before the writer wakes up. Runs until Ctrl+C.
+ */
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
-// Fast writer blocks on a full pipe and wakes as the slow reader frees buffer
-// space. At least one page has to be freed for the writer to wake up
-int main() {
+int main(void) {
     int fds[2];
     if (pipe(fds) == -1) {
-        return 1;
+        perror("pipe");
+        return EXIT_FAILURE;
     }
 
-    int process_id = fork();
+    pid_t process_id = fork();
     if (process_id == -1) {
-        return 1;
+        perror("fork");
+        return EXIT_FAILURE;
     }
 
     if (process_id == 0) {

@@ -1,27 +1,37 @@
+/*
+ * First look at pipes.
+ *
+ * Question: does pipe() overwrite the array you pass it, and what goes in
+ * one end and out the other?
+ *
+ * The array starts as {67, 69}; after pipe() it holds two new file
+ * descriptors (3 and 4). Writing "Hello" to the write end and reading the
+ * read end gets the same 6 bytes back, including the '\0'.
+ */
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/poll.h>
 #include <unistd.h>
-int main() {
-    // does pipe() overwrite?
-    int pipe_1[2] = {67, 69};
-    printf("pipe_read: %i pipe_write: %i\n", pipe_1[0], pipe_1[1]);
-    pipe(pipe_1);
-    printf("pipe_read: %i pipe_write: %i\n", pipe_1[0],
-           pipe_1[1]); // yes pipe() does overwrite __pipedes
-    char buf[] = "Hello";
-    const char *test = "Hello";
-    ssize_t bytes_written = write(pipe_1[1], buf, 6);
-    if (bytes_written == -1 || bytes_written != 6) {
-        perror("write failed");
-        return -1;
-    };
-    struct pollfd x = {.fd = 0};
-    // poll(struct pollfd *fds, nfds_t nfds, int timeout);
-    struct test {
-        int x;
-    };
-    struct test test_instance = {.x = 5};
-    struct test *p = malloc(sizeof(struct test));
-    (*p).x = 6; // (*p).x = p->
+
+int main(void) {
+    int fds[2] = {67, 69};
+    printf("before pipe(): {%d, %d}\n", fds[0], fds[1]);
+    if (pipe(fds) == -1) {
+        perror("pipe");
+        return EXIT_FAILURE;
+    }
+    printf("after pipe():  {%d, %d}\n", fds[0], fds[1]);
+
+    char message[] = "Hello";
+    if (write(fds[1], message, sizeof(message)) != (ssize_t)sizeof(message)) {
+        perror("write");
+        return EXIT_FAILURE;
+    }
+
+    char received[sizeof(message)];
+    if (read(fds[0], received, sizeof(received)) != (ssize_t)sizeof(received)) {
+        perror("read");
+        return EXIT_FAILURE;
+    }
+    printf("read back: %s\n", received);
+    return EXIT_SUCCESS;
 }
