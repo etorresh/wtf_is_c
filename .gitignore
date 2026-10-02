@@ -1,8 +1,10 @@
 # Ignore everything by default
 /*
 
-# Whitelist source files, docs, and gitignore
+# Whitelist source files, docs, the build and CI config, and gitignore
 !*.c
 !*.h
 !*.md
+!Makefile
+!.github/
 !.gitignore
