@@ -1,0 +1,11 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build every experiment with warnings as errors
+        run: make CFLAGS="-std=gnu17 -Wall -Wextra -Werror -O0"
