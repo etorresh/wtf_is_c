@@ -22,8 +22,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#if defined(__GNUC__) && !defined(__clang__) // these warnings are gcc-only
 #pragma GCC diagnostic ignored "-Wuse-after-free"
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 
 int main(void) {
     int *arr = malloc(4 * sizeof(int));
